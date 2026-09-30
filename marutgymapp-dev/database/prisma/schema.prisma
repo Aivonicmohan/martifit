@@ -1,0 +1,898 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Tenant {
+  id               String                 @id @default(uuid())
+  name             String
+  slug             String                 @unique
+  domain           String?                @unique
+  businessCode     String?                @unique
+  status           String                 @default("ACTIVE")
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+
+  branding         TenantBranding?
+  settings         TenantSettings?
+  branches         Branch[]
+  users            User[]
+  roles            Role[]
+  members          Member[]
+  customFields     CustomFieldDefinition[]
+  memberCustomFields MemberCustomField[]
+  membershipPlans  MembershipPlan[]
+  memberships      Membership[]
+  membershipPauses MembershipPause[]
+  attendance       Attendance[]
+  attendanceDevices AttendanceDevice[]
+  biometricIntegrations BiometricIntegration[]
+  biometricSyncLogs BiometricSyncLog[]
+  whatsAppIntegrations WhatsAppIntegration[]
+  whatsAppTemplates WhatsAppTemplate[]
+  whatsAppMessages WhatsAppMessage[]
+  whatsAppAutomations WhatsAppAutomationRule[]
+  payments         Payment[]
+  expenses         Expense[]
+  invoices         Invoice[]
+  leads            Lead[]
+  staff            Staff[]
+  staffPayrolls    StaffPayroll[]
+  trainers         Trainer[]
+  workoutPlans     WorkoutPlan[]
+  tenantFeatures   TenantFeature[]
+  subscriptions    Subscription[]
+  licenses         License[]
+  auditLogs        AuditLog[]
+  gymBatches       GymBatch[]
+  biometricCommands BiometricCommand[]
+  equipmentComplaints EquipmentComplaint[]
+  competitions     Competition[]
+  competitionSubmissions CompetitionSubmission[]
+
+  @@map("tenants")
+}
+
+model TenantBranding {
+  id                 String   @id @default(uuid())
+  tenantId           String   @unique
+  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  businessName       String
+  logoUrl            String?
+  faviconUrl         String?
+  primaryColor       String   @default("#1e40af")
+  secondaryColor     String   @default("#0f172a")
+  loginBackgroundUrl String?
+  loginWelcomeText   String?  @default("Welcome back! Log in to manage your fitness facility.")
+  emailLogoUrl       String?
+  invoiceLogoUrl     String?
+  footerText         String?  @default("Powered by Fitness Business OS")
+  contactPhone       String?
+  contactEmail       String?
+  address            String?
+  website            String?
+  whatsappNumber     String?
+  supportNumber      String?
+  updatedAt          DateTime @updatedAt
+
+  @@map("tenant_brandings")
+}
+
+model TenantSettings {
+  id                     String   @id @default(uuid())
+  tenantId               String   @unique
+  tenant                 Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  currencySymbol         String   @default("₹")
+  currencyCode           String   @default("INR")
+  timezone               String   @default("Asia/Kolkata")
+  dateFormat             String   @default("DD/MM/YYYY")
+  enableWhatsApp         Boolean  @default(true)
+  enableBiometrics       Boolean  @default(true)
+  enableAutoReminder     Boolean  @default(true)
+  autoReminderDaysBefore Int      @default(7)
+  updatedAt              DateTime @updatedAt
+
+  @@map("tenant_settings")
+}
+
+model Branch {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  code      String
+  phone     String?
+  email     String?
+  address   String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members   Member[]
+
+  @@map("branches")
+}
+
+model User {
+  id           String     @id @default(uuid())
+  tenantId     String?
+  tenant       Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email        String     @unique
+  passwordHash String
+  name         String
+  phone        String?
+  avatarUrl    String?
+  isSuperAdmin Boolean    @default(false)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  userRoles    UserRole[]
+  staff        Staff?
+  auditLogs    AuditLog[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  description String?
+  module      String
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId String
+  roleId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model Member {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branchId            String?
+  branch              Branch?  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  memberCode          String
+  firstName           String
+  lastName            String
+  gender              String
+  phone               String
+  email               String?
+  avatarUrl           String?
+  dateOfBirth         DateTime?
+  anniversaryDate     DateTime?
+  joiningDate         DateTime @default(now())
+  status              String   @default("ACTIVE")
+  group               String?
+  source              String?
+  bloodGroup          String?
+  occupation          String?
+  externalBiometricId String?
+  emergencyContact    String?
+  address             String?
+  notes               String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  deletedAt           DateTime?
+
+  customFields        MemberCustomField[]
+  memberships         Membership[]
+  attendance          Attendance[]
+  payments            Payment[]
+  invoices            Invoice[]
+  workoutPlans        WorkoutPlan[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([phone])
+  @@index([externalBiometricId])
+  @@map("members")
+}
+
+model CustomFieldDefinition {
+  id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  entity       String
+  fieldKey     String
+  label        String
+  fieldType    String
+  placeholder  String?
+  defaultValue String?
+  isRequired   Boolean  @default(false)
+  isUnique     Boolean  @default(false)
+  isVisible    Boolean  @default(true)
+  isSearchable Boolean  @default(true)
+  isFilterable Boolean  @default(true)
+  isSortable   Boolean  @default(true)
+  showInList   Boolean  @default(true)
+  showInProfile Boolean @default(true)
+  optionsJson  String?
+  roleVisibility String?
+  displayOrder Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberCustomFields MemberCustomField[]
+
+  @@unique([tenantId, entity, fieldKey])
+  @@map("custom_field_definitions")
+}
+
+model MemberCustomField {
+  id            String                @id @default(uuid())
+  tenantId      String
+  tenant        Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberId      String
+  member        Member                @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  customFieldId String
+  customField   CustomFieldDefinition @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+  value         String?
+
+  @@unique([memberId, customFieldId])
+  @@map("member_custom_fields")
+}
+
+model MembershipPlan {
+  id             String   @id @default(uuid())
+  tenantId       String
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  durationMonths Int
+  price          Float
+  joiningFee     Float    @default(0)
+  renewalFee     Float    @default(0)
+  trialDays      Int      @default(0)
+  freezeDaysMax  Int      @default(14)
+  accessLevel    String   @default("FULL")
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  memberships    Membership[]
+  interestedLeads Lead[]
+
+  @@index([tenantId, durationMonths])
+  @@map("membership_plans")
+}
+
+model Membership {
+  id              String         @id @default(uuid())
+  tenantId        String
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberId        String
+  member          Member         @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  planId          String
+  plan            MembershipPlan @relation(fields: [planId], references: [id])
+  startDate       DateTime
+  endDate         DateTime
+  status          String         @default("ACTIVE")
+  totalAmount     Float
+  paidAmount      Float
+  pendingAmount   Float          @default(0)
+  discountAmount  Float          @default(0)
+  taxAmount       Float          @default(0)
+  freezeStartDate DateTime?
+  freezeEndDate   DateTime?
+  notes           String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  deletedAt       DateTime?
+
+  payments        Payment[]
+  pauses          MembershipPause[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, endDate])
+  @@index([memberId])
+  @@index([memberId, deletedAt, endDate])
+  @@map("memberships")
+}
+
+model MembershipPause {
+  id           String     @id @default(uuid())
+  tenantId     String
+  tenant       Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  membershipId String
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  startDate    DateTime
+  endDate      DateTime
+  pauseDays    Int
+  reason       String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@map("membership_pauses")
+}
+
+model Attendance {
+  id           String    @id @default(uuid())
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberId     String
+  member       Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  checkInTime  DateTime  @default(now())
+  checkOutTime DateTime?
+  date         String
+  status       String    @default("PRESENT")
+  method       String    @default("MANUAL")
+  deviceId     String?
+  notes        String?
+  createdAt    DateTime  @default(now())
+
+  @@map("attendance")
+}
+
+model AttendanceDevice {
+  id           String   @id @default(uuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  deviceType   String
+  deviceIp     String?
+  deviceSerial String?
+  status       String   @default("ONLINE")
+  lastPing     DateTime @default(now())
+
+  commands     BiometricCommand[]
+
+  @@map("attendance_devices")
+}
+
+model BiometricIntegration {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name                String
+  vendor              String
+  connectionType      String
+  apiBaseUrl          String?
+  apiKeyEncrypted     String?
+  apiSecretEncrypted  String?
+  dbType              String?
+  dbHost              String?
+  dbPort              Int?
+  dbName              String?
+  dbUsername          String?
+  dbPasswordEncrypted String?
+  tableName           String?
+  memberIdColumn      String?
+  deviceUserIdColumn  String?
+  timestampColumn     String?
+  checkInTypeColumn   String?
+  syncFrequencyMinutes Int     @default(15)
+  isActive            Boolean  @default(true)
+  lastSyncAt          DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  syncLogs            BiometricSyncLog[]
+
+  @@map("biometric_integrations")
+}
+
+model BiometricSyncLog {
+  id               String               @id @default(uuid())
+  tenantId         String
+  tenant           Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  integrationId    String
+  integration      BiometricIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  status           String
+  recordsProcessed Int                  @default(0)
+  recordsFailed    Int                  @default(0)
+  errorMessage     String?
+  syncedAt         DateTime             @default(now())
+
+  @@map("biometric_sync_logs")
+}
+
+model WhatsAppIntegration {
+  id                  String   @id @default(uuid())
+  tenantId            String
+  tenant              Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  provider            String   @default("WHATSAPP_CLOUD_API")
+  wabaId              String?
+  phoneNumberId       String?
+  accessTokenEncrypted String?
+  webhookSecret       String?
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("whatsapp_integrations")
+}
+
+model WhatsAppTemplate {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  category      String
+  templateId    String
+  language      String   @default("en")
+  content       String
+  paramsMapping String?
+  status        String   @default("APPROVED")
+  createdAt     DateTime @default(now())
+
+  messages      WhatsAppMessage[]
+
+  @@map("whatsapp_templates")
+}
+
+model WhatsAppMessage {
+  id             String            @id @default(uuid())
+  tenantId       String
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  recipientPhone String
+  recipientType  String
+  templateId     String?
+  template       WhatsAppTemplate? @relation(fields: [templateId], references: [id])
+  messageBody    String
+  status         String            @default("QUEUED")
+  failureReason  String?
+  sentAt         DateTime          @default(now())
+
+  @@map("whatsapp_messages")
+}
+
+model WhatsAppAutomationRule {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  triggerEvent  String
+  conditionJson String?
+  templateId    String
+  isEnabled     Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@map("whatsapp_automation_rules")
+}
+
+model Payment {
+  id             String      @id @default(uuid())
+  tenantId       String
+  tenant         Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         Member      @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  membershipId   String?
+  membership     Membership? @relation(fields: [membershipId], references: [id])
+  invoiceNumber  String
+  amount         Float
+  taxAmount      Float       @default(0)
+  discountAmount Float       @default(0)
+  netAmount      Float
+  paymentMethod  String      @default("CASH")
+  transactionRef String?
+  paymentDate    DateTime    @default(now())
+  notes          String?
+  receivedById   String?
+  createdAt      DateTime    @default(now())
+
+  invoices       Invoice[]
+
+  @@map("payments")
+}
+
+model Expense {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  title       String
+  category    String
+  amount      Float
+  paymentMethod String @default("CASH")
+  expenseDate DateTime @default(now())
+  vendorName  String?
+  receiptUrl  String?
+  notes       String?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@map("expenses")
+}
+
+model Invoice {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberId      String
+  member        Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  paymentId     String?
+  payment       Payment? @relation(fields: [paymentId], references: [id])
+  invoiceNumber String   @unique
+  issueDate     DateTime @default(now())
+  dueDate       DateTime
+  subtotal      Float
+  taxAmount     Float    @default(0)
+  totalAmount   Float
+  status        String   @default("PAID")
+  pdfUrl        String?
+  createdAt     DateTime @default(now())
+
+  @@map("invoices")
+}
+
+model Lead {
+  id               String          @id @default(uuid())
+  tenantId         String
+  tenant           Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name             String
+  phone            String
+  email            String?
+  source           String          @default("WALK_IN")
+  interestedPlanId String?
+  interestedPlan   MembershipPlan? @relation(fields: [interestedPlanId], references: [id])
+  assignedStaffId  String?
+  assignedStaff    Staff?          @relation(fields: [assignedStaffId], references: [id])
+  followUpDate     DateTime?
+  status           String          @default("NEW")
+  notes            String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@map("leads")
+}
+
+model Staff {
+  id             String         @id @default(uuid())
+  tenantId       String
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId         String?        @unique
+  user           User?          @relation(fields: [userId], references: [id])
+  name           String
+  phone          String
+  email          String?
+  photoUrl       String?
+  dob            DateTime?
+  anniversary    DateTime?
+  gender         String?        @default("MALE")
+  staffType      String         @default("TRAINER")
+  roleTitle      String         @default("Staff")
+  department     String         @default("OPERATIONS")
+  externalBiometricId String?
+  joiningDate    DateTime       @default(now())
+  baseSalary     Float          @default(0)
+  salaryDay      Int            @default(1)
+  commissionRate Float          @default(0)
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+
+  trainers       Trainer[]
+  leads          Lead[]
+  payrolls       StaffPayroll[]
+
+  @@map("staff")
+}
+
+model StaffPayroll {
+  id            String    @id @default(uuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  staffId       String
+  staff         Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  month         Int       // 1 - 12
+  year          Int       // e.g. 2026
+  baseSalary    Float
+  advancesGiven Float     @default(0)
+  amountPaid    Float     @default(0)
+  dueAmount     Float     @default(0)
+  paymentDate   DateTime?
+  paymentMethod String    @default("CASH") // CASH, UPI, BANK_TRANSFER
+  notes         String?
+  status        String    @default("UNPAID") // PAID, PARTIAL, UNPAID
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([staffId, month, year])
+  @@map("staff_payrolls")
+}
+
+
+model Trainer {
+  id                   String        @id @default(uuid())
+  tenantId             String
+  tenant               Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  staffId              String        @unique
+  staff                Staff         @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  specialization       String
+  experienceYears      Int           @default(1)
+  certifications       String?
+  availabilitySchedule String?
+  createdAt            DateTime      @default(now())
+
+  workoutPlans         WorkoutPlan[]
+
+  @@map("trainers")
+}
+
+model WorkoutPlan {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  title         String
+  description   String?
+  difficulty    String   @default("INTERMEDIATE")
+  trainerId     String?
+  trainer       Trainer? @relation(fields: [trainerId], references: [id])
+  memberId      String?
+  member        Member?  @relation(fields: [memberId], references: [id])
+  startDate     DateTime @default(now())
+  endDate       DateTime?
+  exercisesJson String
+  createdAt     DateTime @default(now())
+
+  @@map("workout_plans")
+}
+
+model Plan {
+  id            String   @id @default(uuid())
+  name          String
+  code          String   @unique
+  description   String?
+  priceOneTime  Float    @default(24000)
+  priceAnnual   Float    @default(30000)
+  priceMonthly  Float    @default(3000)
+  maxMembers    Int      @default(5000)
+  maxBranches   Int      @default(1)
+  maxStaff      Int      @default(50)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Feature {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  description String?
+  isPremium   Boolean  @default(false)
+  category    String   @default("CORE")
+
+  tenantFeatures TenantFeature[]
+
+  @@map("features")
+}
+
+model TenantFeature {
+  id         String    @id @default(uuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  featureId  String
+  feature    Feature   @relation(fields: [featureId], references: [id], onDelete: Cascade)
+  enabled    Boolean   @default(true)
+  startDate  DateTime  @default(now())
+  expiryDate DateTime?
+
+  @@unique([tenantId, featureId])
+  @@map("tenant_features")
+}
+
+model Subscription {
+  id         String    @id @default(uuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  planId     String
+  plan       Plan      @relation(fields: [planId], references: [id])
+  status     String    @default("ACTIVE")
+  startDate  DateTime  @default(now())
+  endDate    DateTime?
+  autoRenew  Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+
+  @@map("subscriptions")
+}
+
+model License {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  licenseKey  String   @unique
+  licenseType String   @default("ONE_TIME")
+  status      String   @default("ACTIVE")
+  validUntil  DateTime?
+  createdAt   DateTime @default(now())
+
+  @@map("licenses")
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  tenantId     String?
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+  action       String
+  entity       String
+  entityId     String?
+  oldValueJson String?
+  newValueJson String?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  @@map("audit_logs")
+}
+
+model GymBatch {
+  id          String   @id @default(uuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  startTime   String?
+  endTime     String?
+  description String?
+  capacity    Int?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("gym_batches")
+}
+
+model BiometricCommand {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  deviceId  String
+  device    AttendanceDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  command   String
+  status    String   @default("PENDING") // PENDING, EXECUTED, FAILED
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([deviceId])
+  @@map("biometric_commands")
+}
+
+model EquipmentComplaint {
+  id            String   @id @default(uuid())
+  tenantId      String
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberName    String
+  memberPhone   String
+  equipmentName String
+  issueType     String   // Rerack Weight, Broken Cable, Maintenance Needed, Other
+  notes         String?
+  photoUrl      String?
+  status        String   @default("OPEN") // OPEN, IN_PROGRESS, RESOLVED
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@map("equipment_complaints")
+}
+
+model AffiliatePartner {
+  id          String   @id @default(uuid())
+  code        String   @unique // e.g. "1001" or "8001" or "AFF-101"
+  name        String
+  phone       String
+  profession  String?
+  location    String?
+  tenantId    String?  // Optional link if affiliate is an existing gym tenant
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  applications FranchiseApplication[]
+
+  @@map("affiliate_partners")
+}
+
+model FranchiseApplication {
+  id               String   @id @default(uuid())
+  name             String
+  phone            String
+  email            String?
+  location         String
+  profession       String?
+  investmentBudget String?
+  experience       String?
+  referredByCode   String?
+  affiliateId      String?
+  affiliate        AffiliatePartner? @relation(fields: [affiliateId], references: [id], onDelete: SetNull)
+  status           String   @default("NEW") // NEW, CONTACTED, IN_DISCUSSION, APPROVED, REJECTED
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("franchise_applications")
+}
+
+model SystemSetting {
+  key         String   @id
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model Competition {
+  id          String                  @id @default(uuid())
+  tenantId    String?                 // Null for global/platform admin competitions, or specific tenant ID
+  tenant      Tenant?                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  title       String                  // e.g. "Max Bench Press Reps", "Zumba Dance Off", "Yoga Asana Hold"
+  category    String                  // GYM, ZUMBA, YOGA, SPORTS, CROSSFIT
+  metricType  String                  @default("REPS") // REPS, DURATION, COUNT
+  metricUnit  String                  @default("reps") // "reps", "seconds", "points"
+  description String?
+  status      String                  @default("OPEN") // OPEN, CLOSED, LIVE_FINALS
+  startDate   DateTime?
+  endDate     DateTime?
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+
+  submissions CompetitionSubmission[]
+
+  @@map("competitions")
+}
+
+model CompetitionSubmission {
+  id               String      @id @default(uuid())
+  competitionId    String
+  competition      Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  tenantId         String
+  tenant           Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  participantName  String
+  participantPhone String
+  memberId         String?     // Optional link to Member
+  metricValue      Float       // Recorded score (reps / duration in sec / count)
+  youtubeUrl       String      // Video proof YouTube link
+  notes            String?
+  status           String      @default("SUBMITTED") // SUBMITTED, VERIFIED_FINALIST, DISQUALIFIED
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  @@index([competitionId, metricValue])
+  @@map("competition_submissions")
+}
+

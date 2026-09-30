@@ -1,0 +1,19 @@
+{
+  "name": "marut-gym-database",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:seed": "npx ts-node -O \"{\\\"module\\\":\\\"CommonJS\\\"}\" prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.1",
+    "prisma": "^5.19.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  }
+}
