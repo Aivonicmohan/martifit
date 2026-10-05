@@ -53,3 +53,7 @@ node_modules/
 *.key
 
 database/Active Members of Cross Road Fitness 30Aug2026/
+
+ec2-ssm-trust-policy.json
+lifecycle.json
+terraform/
