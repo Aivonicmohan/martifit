@@ -34,4 +34,22 @@ yarn-error.log*
 # OS Files
 .DS_Store
 *.pem
+.env
+db-secret.json
+*.tfstate
+*.tfstate.*
+.terraform/
+node_modules/
+ 
+# Database backups and secrets 
+*.dump 
+*.sql 
+*.backup 
+# Terraform local files 
+*.tfstate 
+*.tfstate.* 
+*.tfvars 
+# Private keys 
+*.key
 
+database/Active Members of Cross Road Fitness 30Aug2026/

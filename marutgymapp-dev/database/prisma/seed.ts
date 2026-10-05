@@ -6,6 +6,14 @@ dotenv.config();
 
 const prisma = new PrismaClient();
 
+function requireSeedEnv(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) {
+    throw new Error(`${name} must be set to run the database seed.`);
+  }
+  return value;
+}
+
 async function hashPassword(password: string): Promise<string> {
   const salt = crypto.randomBytes(16);
   const key = crypto.pbkdf2Sync(password, salt, 100000, 32, "sha256");
@@ -14,6 +22,10 @@ async function hashPassword(password: string): Promise<string> {
 
 async function main() {
   console.log("🌱 Starting SaaS Database Seeding in /database...");
+  const adminEmail = requireSeedEnv("SEED_ADMIN_EMAIL");
+  const adminPassword = requireSeedEnv("SEED_ADMIN_PASSWORD");
+  const ownerEmail = requireSeedEnv("SEED_OWNER_EMAIL");
+  const ownerPassword = requireSeedEnv("SEED_OWNER_PASSWORD");
 
   // 1. Seed SaaS Features
   const features = [
@@ -53,12 +65,12 @@ async function main() {
   });
 
   // 3. Super Admin
-  const superAdminPassword = await hashPassword("admin123");
+  const superAdminPassword = await hashPassword(adminPassword);
   await prisma.user.upsert({
-    where: { email: "admin@saas.com" },
+    where: { email: adminEmail },
     update: {},
     create: {
-      email: "admin@saas.com",
+      email: adminEmail,
       passwordHash: superAdminPassword,
       name: "SaaS Super Admin",
       isSuperAdmin: true,
@@ -111,14 +123,14 @@ async function main() {
   });
 
   // Gym Owner User
-  const ownerPassword = await hashPassword("crossroad123");
+  const ownerPasswordHash = await hashPassword(ownerPassword);
   const ownerUser = await prisma.user.upsert({
-    where: { email: "owner@crossroadfitness.com" },
+    where: { email: ownerEmail },
     update: {},
     create: {
       tenantId: tenant.id,
-      email: "owner@crossroadfitness.com",
-      passwordHash: ownerPassword,
+      email: ownerEmail,
+      passwordHash: ownerPasswordHash,
       name: "Sowji (Owner)",
       phone: "9059059751",
     },
@@ -132,7 +144,7 @@ async function main() {
         userId: ownerUser.id,
         name: "Sowji",
         phone: "9059059751",
-        email: "owner@crossroadfitness.com",
+        email: ownerEmail,
         roleTitle: "Gym Owner & Admin",
         department: "MANAGEMENT",
       },

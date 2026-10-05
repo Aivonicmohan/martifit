@@ -1,6 +1,6 @@
 # White-Label Gym Management SaaS Platform (Fitness Business Operating System)
 
-Production-ready, multi-tenant, white-label Gym/Fitness Management SaaS platform decoupled into 3 separate top-level directories:
+A multi-tenant, white-label Gym/Fitness Management SaaS platform decoupled into 3 separate top-level directories:
 
 1. **`/database`**: Database schema (`prisma/schema.prisma`), SQLite/PostgreSQL configuration, database migrations, and initial seed script (`seed.ts`).
 2. **`/backend`**: Express Node.js REST API Server (TypeScript, JWT Auth middleware, Tenant Context Isolation guard, RBAC permission system, Dynamic Custom Fields Engine, Biometric Adapter Framework, WhatsApp Cloud API Adapter, Audit Logger, Report Generators).
@@ -17,6 +17,10 @@ npm install
 npm run db:push
 npm run db:seed
 ```
+
+> **Production database note:** `prisma db push` is intended for local
+> development only. Production deployments must use a reviewed Prisma
+> migration workflow and `prisma migrate deploy`.
 
 ### 2. Backend API Server (`/backend`)
 ```bash
@@ -36,15 +40,20 @@ npm run dev
 
 ---
 
-## 🔑 Pre-Configured Seed Logins
+## 🔐 Authentication
 
-### Initial Tenant: **Cross Road Fitness**
-- **Gym Owner Login**: `owner@crossroadfitness.com`
-- **Password**: `crossroad123`
+The application uses JWT-based authentication.
 
-### SaaS Platform Super Admin
-- **Super Admin Login**: `admin@saas.com`
-- **Password**: `admin123`
+Initial users are created through the database seed process. Credentials
+must be supplied through secure local/deployment configuration and must
+not be committed to the repository.
+
+For production deployments, use unique credentials and rotate any
+credentials that may previously have been exposed in source files.
+
+Before running `npm run db:seed`, set `SEED_OWNER_EMAIL`,
+`SEED_OWNER_PASSWORD`, `SEED_ADMIN_EMAIL`, and `SEED_ADMIN_PASSWORD` in
+the secure local/deployment environment.
 
 ---
 
