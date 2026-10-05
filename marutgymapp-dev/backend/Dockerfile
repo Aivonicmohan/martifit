@@ -24,6 +24,7 @@ RUN npm ci --omit=dev
 
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=build --chown=node:node /app/node_modules/@prisma/client ./node_modules/@prisma/client
 
 USER node
 EXPOSE 5000
