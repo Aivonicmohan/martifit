@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --tenant-primary: #1e40af;
+  --tenant-primary-hover: #1d4ed8;
+  --tenant-secondary: #0f172a;
+}
+
+body {
+  color: #0f172a;
+  background-color: #f8fafc;
+}
+
+/* Printable QR Sticker Print Styles */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  /* Hide header, navigation, tabs, control panels, and surrounding page elements */
+  body * {
+    visibility: hidden !important;
+  }
+
+  /* Make only the sticker card and its contents visible */
+  .printable-card,
+  .printable-card * {
+    visibility: visible !important;
+  }
+
+  .printable-card {
+    position: absolute !important;
+    left: 50% !important;
+    top: 20px !important;
+    transform: translateX(-50%) !important;
+    width: 95% !important;
+    max-width: 680px !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+    border: 3px solid #103562 !important;
+    padding: 24px !important;
+    background: #ffffff !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+}

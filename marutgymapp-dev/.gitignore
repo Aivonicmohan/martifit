@@ -1,0 +1,59 @@
+# Dependencies
+node_modules/
+*/node_modules/
+.pnpm-store
+
+# Next.js build
+.next/
+*/.next/
+out/
+
+# TypeScript build output
+dist/
+*/dist/
+
+# SQLite Database & Prisma generated files
+*.db
+*.db-journal
+database/prisma/dev.db
+prisma/dev.db
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.production.local
+.env.production
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS Files
+.DS_Store
+*.pem
+.env
+db-secret.json
+*.tfstate
+*.tfstate.*
+.terraform/
+node_modules/
+ 
+# Database backups and secrets 
+*.dump 
+*.sql 
+*.backup 
+# Terraform local files 
+*.tfstate 
+*.tfstate.* 
+*.tfvars 
+# Private keys 
+*.key
+
+database/Active Members of Cross Road Fitness 30Aug2026/
+
+ec2-ssm-trust-policy.json
+lifecycle.json
+terraform/

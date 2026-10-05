@@ -1,0 +1,29 @@
+--- backend/src/routes/integrationRoutes.ts
++++ backend/src/routes/integrationRoutes.ts
+@@ -456,4 +456,26 @@
+   }
+ });
+ 
++// Get Biometric Command Logs for a Member
++router.get("/biometric/members/:memberId/commands", tenantAuthMiddleware, async (req: AuthenticatedRequest, res: Response) => {
++  try {
++    const tenantId = req.tenantId!;
++    const { memberId } = req.params;
++
++    const member = await prisma.member.findFirst({ where: { id: memberId, tenantId } });
++    if (!member) return res.status(404).json({ success: false, error: "Member not found" });
++
++    const pin = member.externalBiometricId || member.memberCode;
++    const commands = await prisma.biometricCommand.findMany({
++      where: { tenantId, command: { contains: `PIN=${pin}` } },
++      orderBy: { createdAt: 'desc' },
++      take: 20
++    });
++
++    return res.json({ success: true, commands });
++  } catch (error: any) {
++    return res.status(500).json({ success: false, error: "Failed to fetch logs" });
++  }
++});
++
+ export default router;
