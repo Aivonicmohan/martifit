@@ -1,3 +1,4 @@
+
 stages:
   - security
   - build
@@ -10,9 +11,11 @@ variables:
   FRONTEND_IMAGE: "$CI_REGISTRY_IMAGE/frontend"
   NGINX_IMAGE: "$CI_REGISTRY_IMAGE/nginx"
 
-  DOCKER_HOST: tcp://docker:2376
+  DOCKER_HOST: "tcp://docker:2376"
   DOCKER_TLS_CERTDIR: "/certs"
-  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_VERIFY: "1"
+  DOCKER_CERT_PATH: "/certs/client"
+  DOCKER_DRIVER: "overlay2"
 
 # ==========================================================
 # 1. SECRET DETECTION
@@ -23,13 +26,16 @@ secret_detection:
   image:
     name: zricethezav/gitleaks:latest
     entrypoint: [""]
+
   rules:
     - if: '$CI_COMMIT_BRANCH == "v1"'
+
   script:
-    - gitleaks detect
-        --source .
-        --no-banner
-        --redact
+    - >-
+      gitleaks detect
+      --source .
+      --no-banner
+      --redact
 
 # ==========================================================
 # 2. DEPENDENCY SECURITY SCAN
@@ -38,13 +44,14 @@ secret_detection:
 dependency_scan:
   stage: security
   image: node:20-bookworm
+
   rules:
     - if: '$CI_COMMIT_BRANCH == "v1"'
+
   script:
     - cd backend
     - npm ci --ignore-scripts
     - npm audit --audit-level=high
-
     - cd ../frontend
     - npm ci --ignore-scripts
     - npm audit --audit-level=high
@@ -58,24 +65,29 @@ filesystem_scan:
   image:
     name: aquasec/trivy:latest
     entrypoint: [""]
+
   rules:
     - if: '$CI_COMMIT_BRANCH == "v1"'
+
   script:
-    - trivy fs
-        --scanners vuln,secret,misconfig
-        --severity HIGH,CRITICAL
-        --exit-code 1
-        .
+    - >-
+      trivy fs
+      --scanners vuln,secret,misconfig
+      --severity HIGH,CRITICAL
+      --exit-code 1
+      .
 
 # ==========================================================
-# 4. BUILD DOCKER IMAGES
+# 4. BUILD AND PUSH DOCKER IMAGES
 # ==========================================================
 
 build_images:
   stage: build
   image: docker:27.5.1
+
   services:
     - name: docker:27.5.1-dind
+      alias: docker
       command: ["--tls=true"]
 
   needs:
@@ -87,117 +99,100 @@ build_images:
     - if: '$CI_COMMIT_BRANCH == "v1"'
 
   before_script:
-    - echo "$CI_REGISTRY_PASSWORD" |
+    - >-
+      printf '%s' "$CI_REGISTRY_PASSWORD" |
       docker login "$CI_REGISTRY"
       -u "$CI_REGISTRY_USER"
       --password-stdin
+    - docker info
 
   script:
-    - docker build
-        --platform linux/amd64
-        -t "$BACKEND_IMAGE:$CI_COMMIT_SHA"
-        ./backend
+    # Build backend
+    - >-
+      docker build
+      --platform linux/amd64
+      -t "$BACKEND_IMAGE:$CI_COMMIT_SHA"
+      ./backend
 
-    - docker build
-        --platform linux/amd64
-        --build-arg NEXT_PUBLIC_API_URL=/api
-        -t "$FRONTEND_IMAGE:$CI_COMMIT_SHA"
-        ./frontend
+    # Build frontend
+    - >-
+      docker build
+      --platform linux/amd64
+      --build-arg NEXT_PUBLIC_API_URL=/api
+      -t "$FRONTEND_IMAGE:$CI_COMMIT_SHA"
+      ./frontend
 
-    - docker build
-        --platform linux/amd64
-        -t "$NGINX_IMAGE:$CI_COMMIT_SHA"
-        ./nginx
+    # Build Nginx
+    - >-
+      docker build
+      --platform linux/amd64
+      -t "$NGINX_IMAGE:$CI_COMMIT_SHA"
+      ./nginx
 
-    - docker save
-        "$BACKEND_IMAGE:$CI_COMMIT_SHA"
-        "$FRONTEND_IMAGE:$CI_COMMIT_SHA"
-        "$NGINX_IMAGE:$CI_COMMIT_SHA"
-        -o marutfit-images.tar
-
-  artifacts:
-    expire_in: 1 day
-    paths:
-      - marutfit-images.tar
-
-# ==========================================================
-# 5. DOCKER IMAGE SECURITY SCAN
-# ==========================================================
-
-container_scan:
-  stage: image_scan
-  image:
-    name: aquasec/trivy:latest
-    entrypoint: [""]
-
-  needs:
-    - build_images
-
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "v1"'
-
-  before_script:
-    - apk add --no-cache docker-cli
-    - docker load -i marutfit-images.tar
-
-  script:
-    - trivy image
-        --severity HIGH,CRITICAL
-        --exit-code 1
-        "$BACKEND_IMAGE:$CI_COMMIT_SHA"
-
-    - trivy image
-        --severity HIGH,CRITICAL
-        --exit-code 1
-        "$FRONTEND_IMAGE:$CI_COMMIT_SHA"
-
-    - trivy image
-        --severity HIGH,CRITICAL
-        --exit-code 1
-        "$NGINX_IMAGE:$CI_COMMIT_SHA"
-
-# ==========================================================
-# 6. PUSH IMAGES TO GITLAB CONTAINER REGISTRY
-# ==========================================================
-
-push_images:
-  stage: image_scan
-  image: docker:27.5.1
-
-  services:
-    - name: docker:27.5.1-dind
-      command: ["--tls=true"]
-
-  needs:
-    - build_images
-    - container_scan
-
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "v1"'
-
-  before_script:
-    - echo "$CI_REGISTRY_PASSWORD" |
-      docker login "$CI_REGISTRY"
-      -u "$CI_REGISTRY_USER"
-      --password-stdin
-
-    - docker load -i marutfit-images.tar
-
-  script:
+    # Push immutable commit-tagged images
     - docker push "$BACKEND_IMAGE:$CI_COMMIT_SHA"
     - docker push "$FRONTEND_IMAGE:$CI_COMMIT_SHA"
     - docker push "$NGINX_IMAGE:$CI_COMMIT_SHA"
 
 # ==========================================================
-# 7. DEPLOY TO AWS EC2 USING OIDC + SSM
+# 5. SCAN IMAGES IN GITLAB CONTAINER REGISTRY
+# ==========================================================
+
+container_scan:
+  stage: image_scan
+
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+
+  needs:
+    - job: build_images
+      artifacts: false
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "v1"'
+
+  variables:
+    TRIVY_USERNAME: "$CI_REGISTRY_USER"
+    TRIVY_PASSWORD: "$CI_REGISTRY_PASSWORD"
+    TRIVY_AUTH_URL: "$CI_REGISTRY"
+
+  script:
+    - >-
+      trivy image
+      --image-src remote
+      --scanners vuln
+      --severity HIGH,CRITICAL
+      --exit-code 1
+      "$BACKEND_IMAGE:$CI_COMMIT_SHA"
+
+    - >-
+      trivy image
+      --image-src remote
+      --scanners vuln
+      --severity HIGH,CRITICAL
+      --exit-code 1
+      "$FRONTEND_IMAGE:$CI_COMMIT_SHA"
+
+    - >-
+      trivy image
+      --image-src remote
+      --scanners vuln
+      --severity HIGH,CRITICAL
+      --exit-code 1
+      "$NGINX_IMAGE:$CI_COMMIT_SHA"
+
+# ==========================================================
+# 6. DEPLOY TO AWS EC2 THROUGH OIDC + SSM
 # ==========================================================
 
 deploy_production:
   stage: deploy
+
   image: amazon/aws-cli:2.31.0
 
   needs:
-    - push_images
+    - container_scan
 
   rules:
     - if: '$CI_COMMIT_BRANCH == "v1"'
@@ -207,61 +202,108 @@ deploy_production:
       aud: https://gitlab.com
 
   before_script:
-    - echo "$AWS_OIDC_TOKEN" > /tmp/aws-web-identity-token
+    - umask 077
+    - printf '%s' "$AWS_OIDC_TOKEN" > /tmp/aws-web-identity-token
     - export AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/aws-web-identity-token
     - export AWS_ROLE_ARN="$AWS_DEPLOY_ROLE_ARN"
     - export AWS_DEFAULT_REGION="ap-south-2"
-
     - aws sts get-caller-identity
 
   script:
     - |
+      set -eu
+
+      # Build the remote deployment script without embedding secrets.
+      COMMAND_SCRIPT=$(cat <<'REMOTE_SCRIPT'
+      set -eu
+      set +x
+
+      cd /opt/marutfit
+
+      test -f docker-compose.aws.yml
+      test -f .env
+      test -f registry.env
+
+      # Load existing registry credentials securely.
+      set -a
+      . /opt/marutfit/registry.env
+      set +a
+
+      : "${GITLAB_REGISTRY_USER:?Registry username missing}"
+      : "${GITLAB_REGISTRY_PASSWORD:?Registry password missing}"
+
+      printf '%s' "$GITLAB_REGISTRY_PASSWORD" |
+        docker login registry.gitlab.com \
+          -u "$GITLAB_REGISTRY_USER" \
+          --password-stdin
+
+      # Ensure the existing Docker network is available.
+      docker network inspect marutfit >/dev/null 2>&1 ||
+        docker network create \
+          --driver bridge \
+          --subnet 172.20.0.0/24 \
+          marutfit
+
+      # Validate Compose configuration before changing containers.
+      docker compose -f docker-compose.aws.yml config -q
+
+      # Pull all images before replacing running containers.
+      docker compose -f docker-compose.aws.yml pull
+
+      # Update application containers.
+      docker compose \
+        -f docker-compose.aws.yml \
+        up -d --remove-orphans
+
+      # Report running container status.
+      docker compose -f docker-compose.aws.yml ps
+      REMOTE_SCRIPT
+      )
+
+      # Supply immutable image tags to the remote script.
+      COMMAND_SCRIPT="$COMMAND_SCRIPT
+      export BACKEND_IMAGE='$BACKEND_IMAGE:$CI_COMMIT_SHA'
+      export FRONTEND_IMAGE='$FRONTEND_IMAGE:$CI_COMMIT_SHA'
+      export NGINX_IMAGE='$NGINX_IMAGE:$CI_COMMIT_SHA'"
+
+      # Encode the command as valid JSON for AWS Systems Manager.
+      PARAMETERS=$(printf '%s' "$COMMAND_SCRIPT" |
+        python3 -c 'import json,sys; print(json.dumps({"commands":[sys.stdin.read()]}))')
+
       COMMAND_ID=$(aws ssm send-command \
-        --region ap-south-2 \
+        --region "$AWS_DEFAULT_REGION" \
         --instance-ids "$AWS_EC2_INSTANCE_ID" \
         --document-name "AWS-RunShellScript" \
-        --parameters commands="
-          set -e
-
-          cd /opt/marutfit
-
-          export BACKEND_IMAGE='$BACKEND_IMAGE:$CI_COMMIT_SHA'
-          export FRONTEND_IMAGE='$FRONTEND_IMAGE:$CI_COMMIT_SHA'
-          export NGINX_IMAGE='$NGINX_IMAGE:$CI_COMMIT_SHA'
-
-          docker compose \
-            -f docker-compose.aws.yml \
-            pull
-
-          docker compose \
-            -f docker-compose.aws.yml \
-            up -d \
-            --remove-orphans
-
-          docker image prune -af --filter 'until=168h'
-        " \
+        --parameters "$PARAMETERS" \
         --query 'Command.CommandId' \
         --output text)
 
-      echo "SSM Command ID: $COMMAND_ID"
+      echo "SSM deployment command submitted."
 
+      # Wait for the remote deployment result.
       for i in $(seq 1 30); do
         STATUS=$(aws ssm get-command-invocation \
-          --region ap-south-2 \
+          --region "$AWS_DEFAULT_REGION" \
           --command-id "$COMMAND_ID" \
           --instance-id "$AWS_EC2_INSTANCE_ID" \
           --query 'Status' \
-          --output text)
+          --output text 2>/dev/null || echo "Pending")
 
         echo "Deployment status: $STATUS"
 
         case "$STATUS" in
           Success)
-            echo "Deployment completed successfully."
+            echo "EC2 deployment command completed."
             exit 0
             ;;
           Failed|Cancelled|TimedOut)
-            echo "Deployment failed."
+            echo "EC2 deployment failed."
+            aws ssm get-command-invocation \
+              --region "$AWS_DEFAULT_REGION" \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$AWS_EC2_INSTANCE_ID" \
+              --query 'StandardErrorContent' \
+              --output text || true
             exit 1
             ;;
         esac
@@ -269,15 +311,16 @@ deploy_production:
         sleep 10
       done
 
-      echo "Deployment timed out."
+      echo "Deployment status could not be confirmed in time."
       exit 1
 
 # ==========================================================
-# 8. POST-DEPLOYMENT HEALTH CHECK
+# 7. POST-DEPLOYMENT HEALTH CHECK
 # ==========================================================
 
 health_check:
   stage: verify
+
   image: curlimages/curl:latest
 
   needs:
@@ -287,7 +330,14 @@ health_check:
     - if: '$CI_COMMIT_BRANCH == "v1"'
 
   script:
-    - echo "Checking MarutFit application..."
-    - curl --fail --silent --show-error
-        --max-time 20
-        "http://$EC2_PUBLIC_IP/health"
+    - test -n "$EC2_PUBLIC_IP"
+    - >-
+      curl
+      --fail
+      --silent
+      --show-error
+      --retry 5
+      --retry-delay 3
+      --retry-connrefused
+      --max-time 20
+      "http://$EC2_PUBLIC_IP/health"
