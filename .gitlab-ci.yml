@@ -1,4 +1,9 @@
 
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "v1"'
+    - when: never
+
 stages:
   - security
   - build
@@ -27,9 +32,6 @@ secret_detection:
     name: zricethezav/gitleaks:latest
     entrypoint: [""]
 
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "v1"'
-
   script:
     - >-
       gitleaks detect
@@ -41,13 +43,9 @@ secret_detection:
 # 2. DEPENDENCY SECURITY SCAN
 # ==========================================================
 
-
 dependency_scan:
   stage: security
   image: node:20-bookworm
-
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "v1"'
 
   script:
     - cd marutgymapp-dev/backend
@@ -56,7 +54,6 @@ dependency_scan:
     - cd ../frontend
     - npm ci --ignore-scripts
     - npm audit --audit-level=high
-
 
 # ==========================================================
 # 3. SOURCE / FILESYSTEM SECURITY SCAN
@@ -67,9 +64,6 @@ filesystem_scan:
   image:
     name: aquasec/trivy:latest
     entrypoint: [""]
-
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "v1"'
 
   script:
     - >-
@@ -93,12 +87,12 @@ build_images:
       command: ["--tls=true"]
 
   needs:
-    - secret_detection
-    - dependency_scan
-    - filesystem_scan
-
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "v1"'
+    - job: secret_detection
+      artifacts: false
+    - job: dependency_scan
+      artifacts: false
+    - job: filesystem_scan
+      artifacts: false
 
   before_script:
     - >-
@@ -109,29 +103,26 @@ build_images:
     - docker info
 
   script:
-    # Build backend
     - >-
       docker build
       --platform linux/amd64
       -t "$BACKEND_IMAGE:$CI_COMMIT_SHA"
-      ./backend
+      ./marutgymapp-dev/backend
 
-    # Build frontend
     - >-
       docker build
       --platform linux/amd64
       --build-arg NEXT_PUBLIC_API_URL=/api
       -t "$FRONTEND_IMAGE:$CI_COMMIT_SHA"
-      ./frontend
+      ./marutgymapp-dev/frontend
 
-    # Build Nginx
     - >-
       docker build
       --platform linux/amd64
       -t "$NGINX_IMAGE:$CI_COMMIT_SHA"
-      ./nginx
+      ./marutgymapp-dev/nginx
 
-    # Push immutable commit-tagged images
+    # Push immutable commit-tagged images.
     - docker push "$BACKEND_IMAGE:$CI_COMMIT_SHA"
     - docker push "$FRONTEND_IMAGE:$CI_COMMIT_SHA"
     - docker push "$NGINX_IMAGE:$CI_COMMIT_SHA"
@@ -142,7 +133,6 @@ build_images:
 
 container_scan:
   stage: image_scan
-
   image:
     name: aquasec/trivy:latest
     entrypoint: [""]
@@ -150,9 +140,6 @@ container_scan:
   needs:
     - job: build_images
       artifacts: false
-
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "v1"'
 
   variables:
     TRIVY_USERNAME: "$CI_REGISTRY_USER"
@@ -185,19 +172,16 @@ container_scan:
       "$NGINX_IMAGE:$CI_COMMIT_SHA"
 
 # ==========================================================
-# 6. DEPLOY TO AWS EC2 THROUGH OIDC + SSM
+# 6. DEPLOY TO EC2 USING AWS OIDC + SSM
 # ==========================================================
 
 deploy_production:
   stage: deploy
-
   image: amazon/aws-cli:2.31.0
 
   needs:
-    - container_scan
-
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "v1"'
+    - job: container_scan
+      artifacts: false
 
   id_tokens:
     AWS_OIDC_TOKEN:
@@ -215,8 +199,8 @@ deploy_production:
     - |
       set -eu
 
-      # Build the remote deployment script without embedding secrets.
-      COMMAND_SCRIPT=$(cat <<'REMOTE_SCRIPT'
+      # Build the remote script first.
+      REMOTE_SCRIPT=$(cat <<'REMOTE_SCRIPT_EOF'
       set -eu
       set +x
 
@@ -226,7 +210,7 @@ deploy_production:
       test -f .env
       test -f registry.env
 
-      # Load existing registry credentials securely.
+      # Load existing EC2 registry credentials.
       set -a
       . /opt/marutfit/registry.env
       set +a
@@ -239,36 +223,31 @@ deploy_production:
           -u "$GITLAB_REGISTRY_USER" \
           --password-stdin
 
-      # Ensure the existing Docker network is available.
-      docker network inspect marutfit >/dev/null 2>&1 ||
-        docker network create \
-          --driver bridge \
-          --subnet 172.20.0.0/24 \
-          marutfit
+      # Reuse the existing Docker network.
+      docker network inspect marutfit >/dev/null
 
-      # Validate Compose configuration before changing containers.
+      # Validate configuration before changing containers.
       docker compose -f docker-compose.aws.yml config -q
 
-      # Pull all images before replacing running containers.
+      # Pull images before replacing running containers.
       docker compose -f docker-compose.aws.yml pull
 
-      # Update application containers.
+      # Deploy the selected image versions.
       docker compose \
         -f docker-compose.aws.yml \
         up -d --remove-orphans
 
-      # Report running container status.
       docker compose -f docker-compose.aws.yml ps
-      REMOTE_SCRIPT
+      REMOTE_SCRIPT_EOF
       )
 
-      # Supply immutable image tags to the remote script.
-      COMMAND_SCRIPT="$COMMAND_SCRIPT
-      export BACKEND_IMAGE='$BACKEND_IMAGE:$CI_COMMIT_SHA'
+      # Export image references BEFORE running Compose.
+      COMMAND_SCRIPT="export BACKEND_IMAGE='$BACKEND_IMAGE:$CI_COMMIT_SHA'
       export FRONTEND_IMAGE='$FRONTEND_IMAGE:$CI_COMMIT_SHA'
-      export NGINX_IMAGE='$NGINX_IMAGE:$CI_COMMIT_SHA'"
+      export NGINX_IMAGE='$NGINX_IMAGE:$CI_COMMIT_SHA'
+      $REMOTE_SCRIPT"
 
-      # Encode the command as valid JSON for AWS Systems Manager.
+      # Encode the command as JSON for SSM.
       PARAMETERS=$(printf '%s' "$COMMAND_SCRIPT" |
         python3 -c 'import json,sys; print(json.dumps({"commands":[sys.stdin.read()]}))')
 
@@ -280,9 +259,8 @@ deploy_production:
         --query 'Command.CommandId' \
         --output text)
 
-      echo "SSM deployment command submitted."
+      echo "SSM deployment submitted."
 
-      # Wait for the remote deployment result.
       for i in $(seq 1 30); do
         STATUS=$(aws ssm get-command-invocation \
           --region "$AWS_DEFAULT_REGION" \
@@ -322,14 +300,11 @@ deploy_production:
 
 health_check:
   stage: verify
-
   image: curlimages/curl:latest
 
   needs:
-    - deploy_production
-
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "v1"'
+    - job: deploy_production
+      artifacts: false
 
   script:
     - test -n "$EC2_PUBLIC_IP"
