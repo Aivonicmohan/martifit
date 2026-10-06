@@ -21,6 +21,26 @@ variables:
 # 1. SECRET DETECTION
 # ==========================================================
 
+secret_detection:
+  stage: security
+  image:
+    name: zricethezav/gitleaks:latest
+    entrypoint: [""]
+
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "v1"'
+
+  script:
+    - >-
+      gitleaks detect
+      --source .
+      --no-banner
+      --redact
+
+# ==========================================================
+# 2. DEPENDENCY SECURITY SCAN
+# ==========================================================
+
 
 dependency_scan:
   stage: security
@@ -37,25 +57,6 @@ dependency_scan:
     - npm ci --ignore-scripts
     - npm audit --audit-level=high
 
-
-# ==========================================================
-# 2. DEPENDENCY SECURITY SCAN
-# ==========================================================
-
-dependency_scan:
-  stage: security
-  image: node:20-bookworm
-
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "v1"'
-
-  script:
-    - cd backend
-    - npm ci --ignore-scripts
-    - npm audit --audit-level=high
-    - cd ../frontend
-    - npm ci --ignore-scripts
-    - npm audit --audit-level=high
 
 # ==========================================================
 # 3. SOURCE / FILESYSTEM SECURITY SCAN
