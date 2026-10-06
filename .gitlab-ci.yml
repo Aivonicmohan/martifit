@@ -39,13 +39,10 @@ secret_detection:
       --no-banner
       --redact
 
-# ==========================================================
-# 2. DEPENDENCY SECURITY SCAN
-# ==========================================================
+CAL
+      --exit-code 1
+      .
 
-#dependency_scan:
- ###script:
-    ########
 # ==========================================================
 # 4. BUILD AND PUSH DOCKER IMAGES
 # ==========================================================
@@ -61,7 +58,37 @@ build_images:
 
   needs:
     - job: secret_detection
-      artifacts: false
+      artifacts: false# ==========================================================
+# 2. DEPENDENCY SECURITY SCAN
+# ==========================================================
+
+dependency_scan:
+  stage: security
+  image: node:20-bookworm
+
+  script:
+    - cd marutgymapp-dev/backend
+    - npm ci --ignore-scripts
+    - npm audit --audit-level=high
+    - cd ../frontend
+    - npm ci --ignore-scripts
+    - npm audit --audit-level=high
+
+# ==========================================================
+# 3. SOURCE / FILESYSTEM SECURITY SCAN
+# ==========================================================
+
+filesystem_scan:
+  stage: security
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+
+  script:
+    - >-
+      trivy fs
+      --scanners vuln,secret,misconfig
+      --severity HIGH,CRITI
     - job: dependency_scan
       artifacts: false
     - job: filesystem_scan
