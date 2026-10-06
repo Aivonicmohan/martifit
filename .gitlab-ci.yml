@@ -273,4 +273,3 @@ health_check:
       --retry-connrefused
       --max-time 20
       "http://$EC2_PUBLIC_IP/health"
-```
