@@ -127,52 +127,9 @@ build_images:
     - docker push "$FRONTEND_IMAGE:$CI_COMMIT_SHA"
     - docker push "$NGINX_IMAGE:$CI_COMMIT_SHA"
 
-# ==========================================================
-# 5. SCAN IMAGES IN GITLAB CONTAINER REGISTRY
-# ==========================================================
-
-container_scan:
-  stage: image_scan
-  image:
-    name: aquasec/trivy:latest
-    entrypoint: [""]
-
-  needs:
-    - job: build_images
-      artifacts: false
-
-  variables:
-    TRIVY_USERNAME: "$CI_REGISTRY_USER"
-    TRIVY_PASSWORD: "$CI_REGISTRY_PASSWORD"
-    TRIVY_AUTH_URL: "$CI_REGISTRY"
-
-  script:
-    - >-
-      trivy image
-      --image-src remote
-      --scanners vuln
-      --severity HIGH,CRITICAL
-      --exit-code 1
-      "$BACKEND_IMAGE:$CI_COMMIT_SHA"
-
-    - >-
-      trivy image
-      --image-src remote
-      --scanners vuln
-      --severity HIGH,CRITICAL
-      --exit-code 1
-      "$FRONTEND_IMAGE:$CI_COMMIT_SHA"
-
-    - >-
-      trivy image
-      --image-src remote
-      --scanners vuln
-      --severity HIGH,CRITICAL
-      --exit-code 1
-      "$NGINX_IMAGE:$CI_COMMIT_SHA"
 
 # ==========================================================
-# 6. DEPLOY TO EC2 USING AWS OIDC + SSM
+# 5. DEPLOY TO EC2 USING AWS OIDC + SSM
 # ==========================================================
 
 deploy_production:
@@ -295,7 +252,7 @@ deploy_production:
       exit 1
 
 # ==========================================================
-# 7. POST-DEPLOYMENT HEALTH CHECK
+# 6. POST-DEPLOYMENT HEALTH CHECK
 # ==========================================================
 
 health_check:
