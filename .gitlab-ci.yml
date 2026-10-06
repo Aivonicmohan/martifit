@@ -1,4 +1,4 @@
-
+```yaml
 workflow:
   rules:
     - if: '$CI_COMMIT_BRANCH == "v1"'
@@ -7,7 +7,6 @@ workflow:
 stages:
   - security
   - build
-  - image_scan
   - deploy
   - verify
 
@@ -127,7 +126,6 @@ build_images:
     - docker push "$FRONTEND_IMAGE:$CI_COMMIT_SHA"
     - docker push "$NGINX_IMAGE:$CI_COMMIT_SHA"
 
-
 # ==========================================================
 # 5. DEPLOY TO EC2 USING AWS OIDC + SSM
 # ==========================================================
@@ -137,12 +135,12 @@ deploy_production:
   image: amazon/aws-cli:2.31.0
 
   needs:
-    - job: container_scan
+    - job: build_images
       artifacts: false
 
   id_tokens:
     AWS_OIDC_TOKEN:
-      aud: https://gitlab.com
+      aud: "https://gitlab.com"
 
   before_script:
     - umask 077
@@ -156,7 +154,7 @@ deploy_production:
     - |
       set -eu
 
-      # Build the remote script first.
+      # Build the remote deployment script.
       REMOTE_SCRIPT=$(cat <<'REMOTE_SCRIPT_EOF'
       set -eu
       set +x
@@ -180,10 +178,10 @@ deploy_production:
           -u "$GITLAB_REGISTRY_USER" \
           --password-stdin
 
-      # Reuse the existing Docker network.
+      # Confirm the existing Docker network.
       docker network inspect marutfit >/dev/null
 
-      # Validate configuration before changing containers.
+      # Validate Compose configuration before deployment.
       docker compose -f docker-compose.aws.yml config -q
 
       # Pull images before replacing running containers.
@@ -198,7 +196,7 @@ deploy_production:
       REMOTE_SCRIPT_EOF
       )
 
-      # Export image references BEFORE running Compose.
+      # Set image references for the remote deployment.
       COMMAND_SCRIPT="export BACKEND_IMAGE='$BACKEND_IMAGE:$CI_COMMIT_SHA'
       export FRONTEND_IMAGE='$FRONTEND_IMAGE:$CI_COMMIT_SHA'
       export NGINX_IMAGE='$NGINX_IMAGE:$CI_COMMIT_SHA'
@@ -275,3 +273,4 @@ health_check:
       --retry-connrefused
       --max-time 20
       "http://$EC2_PUBLIC_IP/health"
+```
