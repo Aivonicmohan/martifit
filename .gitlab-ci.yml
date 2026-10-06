@@ -1,4 +1,4 @@
-```yaml
+
 workflow:
   rules:
     - if: '$CI_COMMIT_BRANCH == "v1"'
