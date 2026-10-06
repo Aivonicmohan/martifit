@@ -39,26 +39,7 @@ secret_detection:
       --no-banner
       --redact
 
-CAL
-      --exit-code 1
-      .
-
 # ==========================================================
-# 4. BUILD AND PUSH DOCKER IMAGES
-# ==========================================================
-
-build_images:
-  stage: build
-  image: docker:27.5.1
-
-  services:
-    - name: docker:27.5.1-dind
-      alias: docker
-      command: ["--tls=true"]
-
-  needs:
-    - job: secret_detection
-      artifacts: false# ==========================================================
 # 2. DEPENDENCY SECURITY SCAN
 # ==========================================================
 
@@ -88,7 +69,26 @@ filesystem_scan:
     - >-
       trivy fs
       --scanners vuln,secret,misconfig
-      --severity HIGH,CRITI
+      --severity HIGH,CRITICAL
+      --exit-code 1
+      .
+
+# ==========================================================
+# 4. BUILD AND PUSH DOCKER IMAGES
+# ==========================================================
+
+build_images:
+  stage: build
+  image: docker:27.5.1
+
+  services:
+    - name: docker:27.5.1-dind
+      alias: docker
+      command: ["--tls=true"]
+
+  needs:
+    - job: secret_detection
+      artifacts: false
     - job: dependency_scan
       artifacts: false
     - job: filesystem_scan
