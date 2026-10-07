@@ -1,0 +1,275 @@
+
+workflow:
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "v1"'
+    - when: never
+
+stages:
+  - security
+  - build
+  - deploy
+  - verify
+
+variables:
+  BACKEND_IMAGE: "$CI_REGISTRY_IMAGE/backend"
+  FRONTEND_IMAGE: "$CI_REGISTRY_IMAGE/frontend"
+  NGINX_IMAGE: "$CI_REGISTRY_IMAGE/nginx"
+
+  DOCKER_HOST: "tcp://docker:2376"
+  DOCKER_TLS_CERTDIR: "/certs"
+  DOCKER_TLS_VERIFY: "1"
+  DOCKER_CERT_PATH: "/certs/client"
+  DOCKER_DRIVER: "overlay2"
+
+# ==========================================================
+# 1. SECRET DETECTION
+# ==========================================================
+
+secret_detection:
+  stage: security
+  image:
+    name: zricethezav/gitleaks:latest
+    entrypoint: [""]
+
+  script:
+    - >-
+      gitleaks detect
+      --source .
+      --no-banner
+      --redact
+
+# ==========================================================
+# 2. DEPENDENCY SECURITY SCAN
+# ==========================================================
+
+dependency_scan:
+  stage: security
+  image: node:20-bookworm
+
+  script:
+    - cd marutgymapp-dev/backend
+    - npm ci --ignore-scripts
+    - npm audit --audit-level=high
+    - cd ../frontend
+    - npm ci --ignore-scripts
+    - npm audit --audit-level=high
+
+# ==========================================================
+# 3. SOURCE / FILESYSTEM SECURITY SCAN
+# ==========================================================
+
+filesystem_scan:
+  stage: security
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+
+  script:
+    - >-
+      trivy fs
+      --scanners vuln,secret,misconfig
+      --severity HIGH,CRITICAL
+      --exit-code 1
+      .
+
+# ==========================================================
+# 4. BUILD AND PUSH DOCKER IMAGES
+# ==========================================================
+
+build_images:
+  stage: build
+  image: docker:27.5.1
+
+  services:
+    - name: docker:27.5.1-dind
+      alias: docker
+      command: ["--tls=true"]
+
+  needs:
+    - job: secret_detection
+      artifacts: false
+    - job: dependency_scan
+      artifacts: false
+    - job: filesystem_scan
+      artifacts: false
+
+  before_script:
+    - >-
+      printf '%s' "$CI_REGISTRY_PASSWORD" |
+      docker login "$CI_REGISTRY"
+      -u "$CI_REGISTRY_USER"
+      --password-stdin
+    - docker info
+
+  script:
+    - >-
+      docker build
+      --platform linux/amd64
+      -t "$BACKEND_IMAGE:$CI_COMMIT_SHA"
+      ./marutgymapp-dev/backend
+
+    - >-
+      docker build
+      --platform linux/amd64
+      --build-arg NEXT_PUBLIC_API_URL=/api
+      -t "$FRONTEND_IMAGE:$CI_COMMIT_SHA"
+      ./marutgymapp-dev/frontend
+
+    - >-
+      docker build
+      --platform linux/amd64
+      -t "$NGINX_IMAGE:$CI_COMMIT_SHA"
+      ./marutgymapp-dev/nginx
+
+    # Push immutable commit-tagged images.
+    - docker push "$BACKEND_IMAGE:$CI_COMMIT_SHA"
+    - docker push "$FRONTEND_IMAGE:$CI_COMMIT_SHA"
+    - docker push "$NGINX_IMAGE:$CI_COMMIT_SHA"
+
+# ==========================================================
+# 5. DEPLOY TO EC2 USING AWS OIDC + SSM
+# ==========================================================
+
+deploy_production:
+  stage: deploy
+  image: amazon/aws-cli:2.31.0
+
+  needs:
+    - job: build_images
+      artifacts: false
+
+  id_tokens:
+    AWS_OIDC_TOKEN:
+      aud: "https://gitlab.com"
+
+  before_script:
+    - umask 077
+    - printf '%s' "$AWS_OIDC_TOKEN" > /tmp/aws-web-identity-token
+    - export AWS_WEB_IDENTITY_TOKEN_FILE=/tmp/aws-web-identity-token
+    - export AWS_ROLE_ARN="$AWS_DEPLOY_ROLE_ARN"
+    - export AWS_DEFAULT_REGION="ap-south-2"
+    - aws sts get-caller-identity
+
+  script:
+    - |
+      set -eu
+
+      # Build the remote deployment script.
+      REMOTE_SCRIPT=$(cat <<'REMOTE_SCRIPT_EOF'
+      set -eu
+      set +x
+
+      cd /opt/marutfit
+
+      test -f docker-compose.aws.yml
+      test -f .env
+      test -f registry.env
+
+      # Load existing EC2 registry credentials.
+      set -a
+      . /opt/marutfit/registry.env
+      set +a
+
+      : "${GITLAB_REGISTRY_USER:?Registry username missing}"
+      : "${GITLAB_REGISTRY_PASSWORD:?Registry password missing}"
+
+      printf '%s' "$GITLAB_REGISTRY_PASSWORD" |
+        docker login registry.gitlab.com \
+          -u "$GITLAB_REGISTRY_USER" \
+          --password-stdin
+
+      # Confirm the existing Docker network.
+      docker network inspect marutfit >/dev/null
+
+      # Validate Compose configuration before deployment.
+      docker compose -f docker-compose.aws.yml config -q
+
+      # Pull images before replacing running containers.
+      docker compose -f docker-compose.aws.yml pull
+
+      # Deploy the selected image versions.
+      docker compose \
+        -f docker-compose.aws.yml \
+        up -d --remove-orphans
+
+      docker compose -f docker-compose.aws.yml ps
+      REMOTE_SCRIPT_EOF
+      )
+
+      # Set image references for the remote deployment.
+      COMMAND_SCRIPT="export BACKEND_IMAGE='$BACKEND_IMAGE:$CI_COMMIT_SHA'
+      export FRONTEND_IMAGE='$FRONTEND_IMAGE:$CI_COMMIT_SHA'
+      export NGINX_IMAGE='$NGINX_IMAGE:$CI_COMMIT_SHA'
+      $REMOTE_SCRIPT"
+
+      # Encode the command as JSON for SSM.
+      PARAMETERS=$(printf '%s' "$COMMAND_SCRIPT" |
+        python3 -c 'import json,sys; print(json.dumps({"commands":[sys.stdin.read()]}))')
+
+      COMMAND_ID=$(aws ssm send-command \
+        --region "$AWS_DEFAULT_REGION" \
+        --instance-ids "$AWS_EC2_INSTANCE_ID" \
+        --document-name "AWS-RunShellScript" \
+        --parameters "$PARAMETERS" \
+        --query 'Command.CommandId' \
+        --output text)
+
+      echo "SSM deployment submitted."
+
+      for i in $(seq 1 30); do
+        STATUS=$(aws ssm get-command-invocation \
+          --region "$AWS_DEFAULT_REGION" \
+          --command-id "$COMMAND_ID" \
+          --instance-id "$AWS_EC2_INSTANCE_ID" \
+          --query 'Status' \
+          --output text 2>/dev/null || echo "Pending")
+
+        echo "Deployment status: $STATUS"
+
+        case "$STATUS" in
+          Success)
+            echo "EC2 deployment command completed."
+            exit 0
+            ;;
+          Failed|Cancelled|TimedOut)
+            echo "EC2 deployment failed."
+            aws ssm get-command-invocation \
+              --region "$AWS_DEFAULT_REGION" \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$AWS_EC2_INSTANCE_ID" \
+              --query 'StandardErrorContent' \
+              --output text || true
+            exit 1
+            ;;
+        esac
+
+        sleep 10
+      done
+
+      echo "Deployment status could not be confirmed in time."
+      exit 1
+
+# ==========================================================
+# 6. POST-DEPLOYMENT HEALTH CHECK
+# ==========================================================
+
+health_check:
+  stage: verify
+  image: curlimages/curl:latest
+
+  needs:
+    - job: deploy_production
+      artifacts: false
+
+  script:
+    - test -n "$EC2_PUBLIC_IP"
+    - >-
+      curl
+      --fail
+      --silent
+      --show-error
+      --retry 5
+      --retry-delay 3
+      --retry-connrefused
+      --max-time 20
+      "http://$EC2_PUBLIC_IP/health"
